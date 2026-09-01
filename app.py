@@ -53,7 +53,6 @@ st.markdown(
 )
 
 st.title("Assignments")
-st.caption("One card per class, sorted by due date, color-coded so you can see what needs attention at a glance.")
 
 # --- Sidebar: add + backup ---
 with st.sidebar:
