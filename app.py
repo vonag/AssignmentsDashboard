@@ -1,29 +1,58 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
-import os
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Assignment Dashboard", page_icon="📚", layout="wide")
 
-DATA_FILE = "assignments.csv"
 COLUMNS = ["Class", "Assignment", "Due Date", "Status", "Notes"]
+SHEET_NAME = "Assignments Dashboard Data"
 
 CLASS_COLORS = [
-    "#4C6EF5", "#12B886", "#F59F00", "#E64980",
-    "#7048E8", "#15AABF", "#FA5252", "#82C91E",
+    "#E75480", "#F48FB1", "#C2185B", "#F06292",
+    "#AD1457", "#F8BBD0", "#D81B60", "#EC407A",
 ]
 
 
+@st.cache_resource
+def get_worksheet():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    client = gspread.authorize(creds)
+    try:
+        sheet = client.open(SHEET_NAME)
+    except gspread.SpreadsheetNotFound:
+        sheet = client.create(SHEET_NAME)
+    try:
+        sheet.share("gmvona789@gmail.com", perm_type="user", role="writer")
+    except Exception:
+        pass
+    ws = sheet.sheet1
+    if ws.row_values(1) != COLUMNS:
+        ws.clear()
+        ws.append_row(COLUMNS)
+    return ws
+
+
 def load_data():
-    if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE, parse_dates=["Due Date"])
-        df["Due Date"] = df["Due Date"].dt.date
-        return df
-    return pd.DataFrame(columns=COLUMNS)
+    ws = get_worksheet()
+    records = ws.get_all_records()
+    if not records:
+        return pd.DataFrame(columns=COLUMNS)
+    df = pd.DataFrame(records)
+    df["Due Date"] = pd.to_datetime(df["Due Date"], errors="coerce").dt.date
+    return df[COLUMNS]
 
 
 def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
+    ws = get_worksheet()
+    out = df.copy()
+    out["Due Date"] = out["Due Date"].apply(lambda d: d.isoformat() if pd.notna(d) else "")
+    ws.clear()
+    ws.append_row(COLUMNS)
+    if not out.empty:
+        ws.append_rows(out[COLUMNS].values.tolist())
 
 
 def urgency_flag(row, today):
@@ -48,6 +77,7 @@ if "df" not in st.session_state:
 st.markdown(
     """<style>
     .stApp { background-color: #FDEEF4; }
+    section[data-testid="stSidebar"] { background-color: #E6E0F8; }
     </style>""",
     unsafe_allow_html=True,
 )
@@ -96,13 +126,7 @@ with st.sidebar:
         file_name="assignments_backup.csv",
         mime="text/csv",
     )
-    uploaded = st.file_uploader("⬆️ Restore from backup", type="csv")
-    if uploaded is not None:
-        restored = pd.read_csv(uploaded, parse_dates=["Due Date"])
-        restored["Due Date"] = restored["Due Date"].dt.date
-        st.session_state.df = restored
-        save_data(st.session_state.df)
-        st.rerun()
+    st.caption("Your data lives in a Google Sheet now, so it won't disappear if the app goes to sleep.")
 
 today = date.today()
 df = st.session_state.df.copy()
